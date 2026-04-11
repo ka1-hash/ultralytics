@@ -11,6 +11,9 @@
 因此需手动安装兼容 CUDA 12.4 的版本：
 
 ```bash
+# 安装所有依赖
+uv sync
+
 # 卸载不兼容版本
 uv pip uninstall torch torchvision
 
