@@ -1,6 +1,8 @@
 # Ultralytics YOLO 项目入门指南
 
-## 环境管理
+## 快速上手
+
+### 环境管理
 
 本项目使用 `uv` 进行 Python 环境和依赖管理。
 
@@ -20,6 +22,23 @@ uv pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pyt
 ```bash
 python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.version.cuda}, Available: {torch.cuda.is_available()}')"
 ```
+
+### 开始训练
+
+```bash
+# 1. 从模板复制训练脚本
+cp train.example.py train.py
+cp train.example.sh train.sh
+
+# 2. 修改 train.sh 中的 MODEL 和 DEVICE（可选）
+#    MODEL="yolo26n"    # 模型名称
+#    DEVICE="3"         # GPU 编号，多卡用 "0,1"
+
+# 3. 启动训练（后台运行，日志带时间戳）
+bash train.sh
+```
+
+训练结果保存在 `runs/detect/visdrone/<MODEL>-<时间戳>/`，日志在 `logs/<MODEL>-<时间戳>.log`。详见 [train.md](train.md)。
 
 ## 📋 项目概述
 

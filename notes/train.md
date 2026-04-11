@@ -101,8 +101,50 @@ multi_scale: 0.0  # 0.0=禁用, 0.5=启用
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `cos_lr` | `False` | 余弦学习率（默认 Linear） |
-| `cache` | `False` | 图片载入内存（内存够建议开） |
+| `cache` | `False` | 图片缓存（详见 3.4） |
 | `resume` | `False` | 续训 |
+
+### 3.4 cache（图片缓存）
+
+```python
+# base.py:136
+self.cache = cache.lower() if isinstance(cache, str) else "ram" if cache is True else None
+```
+
+| 参数值 | 效果 | 速度 | 可复现 | 说明 |
+|--------|------|------|--------|------|
+| `False` / 不设 | 每 epoch 重新读原图 | 最慢 | ✅ | 无额外开销 |
+| `True` / `'ram'` | 缓存到内存 | 最快 | ❌ | `cache=True` 等价于 `cache='ram'` |
+| `'disk'` | 缓存为 `.npy` 到磁盘 | 较快 | ✅ | 推荐折中方案 |
+
+**为什么 `ram` 不可复现？**
+- `cache='ram'` 用 `ThreadPool` 多线程并发解码图片，线程完成时序不确定
+- 多线程可能导致 OpenCV JPEG 解码的浮点截断有微小差异，存入内存的图片数值略有不同
+- `cache='disk'` 将图片序列化为 `.npy` 文件，后续 `np.load()` 读取，纯确定性
+
+**cache 加速原理**：
+- 无 cache：每 epoch → 磁盘读文件 → OpenCV 解码 → resize
+- `cache='ram'`：首次加载后存内存，后续 epoch 直接内存读取，省掉磁盘 I/O + 解码
+- `cache='disk'`：首次训练写 `.npy` 到数据集目录，后续 epoch 读 `.npy`，省掉 JPEG 解码
+
+> **建议**：磁盘空间够用 `cache='disk'`（可复现 + 较快），内存充足不介意不可复现用 `cache='ram'`（最快）。
+
+### 3.5 多卡训练
+
+```python
+# trainer.py:270
+batch_size = self.batch_size // max(self.world_size, 1)
+```
+
+`batch` 参数设的是**总 batch size**，多卡时自动平分到每张卡：
+
+| device | batch | 每卡分到 | 等效总 batch |
+|--------|-------|---------|-------------|
+| `'0'` | 8 | 8 | 8 |
+| `'0,1'` | 8 | 4 | 8 |
+| `'0,1,2,3'` | 8 | 2 | 8 |
+
+> 想每卡跑 8，需设 `batch=16`（双卡）或 `batch=32`（四卡）。
 
 ---
 
@@ -205,7 +247,7 @@ results = model.train(
     copy_paste=0.2,      # 复制粘贴小目标
 
     # 其他
-    cache='ram',         # 载入内存加速（内存够）
+    cache='disk',        # 缓存到磁盘（推荐），或 'ram'（更快但不可复现）
     pretrained=True,     # COCO 预训练
 
     # 实验管理
