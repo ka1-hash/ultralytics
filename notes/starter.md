@@ -1,5 +1,26 @@
 # Ultralytics YOLO 项目入门指南
 
+## 环境管理
+
+本项目使用 `uv` 进行 Python 环境和依赖管理。
+
+**注意**：`uv sync` 默认会安装符合 `pyproject.toml` 约束的最新版本 PyTorch（如 2.11.0），但当前显卡驱动（550.54.14）仅支持 CUDA 12.4。PyTorch 2.11.0 需要 CUDA 13.0+，会导致 GPU 无法使用。
+
+因此需手动安装兼容 CUDA 12.4 的版本：
+
+```bash
+# 卸载不兼容版本
+uv pip uninstall torch torchvision
+
+# 安装支持 CUDA 12.4 的最新 PyTorch 版本（2.6.0）
+uv pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+```
+
+验证安装：
+```bash
+python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.version.cuda}, Available: {torch.cuda.is_available()}')"
+```
+
 ## 📋 项目概述
 
 | 特性 | 说明 |

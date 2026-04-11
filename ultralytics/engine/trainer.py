@@ -405,7 +405,7 @@ class BaseTrainer:
 
             if RANK in {-1, 0}:
                 LOGGER.info(self.progress_string())
-                pbar = TQDM(enumerate(self.train_loader), total=nb)
+                pbar = TQDM(enumerate(self.train_loader), total=nb, mininterval=60)
             self.tloss = None
             for i, batch in pbar:
                 self.run_callbacks("on_train_batch_start")
