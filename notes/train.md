@@ -30,7 +30,7 @@
 
 ### 2.1 自动梯度累积
 
-```python
+```
 # trainer.py:281
 self.accumulate = max(round(self.args.nbs / self.batch_size), 1)
 ```
@@ -42,7 +42,7 @@ self.accumulate = max(round(self.args.nbs / self.batch_size), 1)
 
 ### 2.2 优化器自动选择
 
-```python
+```
 # trainer.py:1003
 name, lr, momentum = ("MuSGD", 0.01, 0.9) if iterations > 10000 else ("AdamW", lr_fit, 0.9)
 ```
@@ -53,7 +53,7 @@ name, lr, momentum = ("MuSGD", 0.01, 0.9) if iterations > 10000 else ("AdamW", l
 
 ### 2.3 学习率策略
 
-```python
+```
 # trainer.py:248-254
 def _setup_scheduler(self):
     if self.args.cos_lr:
@@ -75,7 +75,7 @@ def _setup_scheduler(self):
 
 ### 3.1 multi_scale（多尺度训练）
 
-```yaml
+```
 multi_scale: 0.0  # 0.0=禁用, 0.5=启用
 ```
 
@@ -104,9 +104,46 @@ multi_scale: 0.0  # 0.0=禁用, 0.5=启用
 | `cache` | `False` | 图片缓存（详见 3.4） |
 | `resume` | `False` | 续训 |
 
-### 3.4 cache（图片缓存）
+### 3.4 数据增强详解
 
-```python
+#### 3.4.1 Mosaic 增强（默认启用）
+
+Mosaic 是 Ultralytics 框架默认启用的数据增强方法，通过拼接四张图片来增加训练样本的多样性。
+
+**原理**：
+- 随机选择一张图片作为中心图片
+- 从数据集中随机选择另外三张图片，按一定比例拼接填充剩余区域
+- 由于 VisDrone 数据集中小目标较多，Mosaic 增强可以有效增加小目标的可见性
+
+**操作流程**：
+1. 随机生成拼接点坐标（中心点）
+2. 将当前图片放置在四个象限中的一个
+3. 随机选择其他三张图片填充剩余三个象限
+4. 根据设定的缩放比例调整每张图片的大小
+5. 将四张图片的信息合并为一张图片
+
+**可视化示例**：
+- 训练开始时会在输出目录生成 `train_batch0.jpg` 等文件
+- 这些文件展示了经过 Mosaic 增强后的图片及标注框
+
+**VisDrone 优势**：
+- 小目标物体在拼接过程中更不容易丢失
+- 增加了不同场景的混合，提高模型泛化能力
+- 有助于模型学习更丰富的背景信息
+
+#### 3.4.2 其他默认增强策略
+
+| 增强类型 | 参数 | 说明 |
+|----------|------|------|
+| **RandAugment** | `auto_augment='randaugment'` | 随机应用多种增强变换组合 |
+| **HSV颜色增强** | `hsv_h=0.015, hsv_s=0.7, hsv_v=0.4` | 调整色调、饱和度、亮度 |
+| **水平翻转** | `fliplr=0.5` | 50% 概率水平翻转 |
+| **随机擦除** | `erasing=0.4` | 40% 概率随机擦除部分区域 |
+| **几何变换** | `translate=0.1, scale=0.5` | 随机平移和缩放 |
+
+### 3.5 cache（图片缓存）
+
+```
 # base.py:136
 self.cache = cache.lower() if isinstance(cache, str) else "ram" if cache is True else None
 ```
@@ -131,7 +168,7 @@ self.cache = cache.lower() if isinstance(cache, str) else "ram" if cache is True
 
 ### 3.5 多卡训练
 
-```python
+```
 # trainer.py:270
 batch_size = self.batch_size // max(self.world_size, 1)
 ```
@@ -152,7 +189,7 @@ batch_size = self.batch_size // max(self.world_size, 1)
 
 ### 4.1 目录计算逻辑
 
-```python
+```
 # cfg/__init__.py: get_save_dir()
 project = args.project or ""                      # 例如 'visdrone'
 project = RUNS_DIR / args.task / project          # runs/detect/visdrone
@@ -173,7 +210,7 @@ save_dir = project / name                         # runs/detect/visdrone/<name>
 
 用时间戳命名实验，避免自动生成 `train`, `train1`, `train2`... 方便区分每次训练：
 
-```python
+```
 from datetime import datetime
 
 exp_name = f"vis-26n-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -224,7 +261,7 @@ results = model.train(
 
 ### 5.1 基础配置（推荐）
 
-```python
+```
 from datetime import datetime
 from ultralytics import YOLO
 
@@ -259,7 +296,7 @@ results = model.train(
 
 ### 5.2 高分辨率配置（显存 ≥12GB）
 
-```python
+```
 model = YOLO('yolo26l.pt')
 exp_name = f"vis-26l-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
@@ -295,7 +332,7 @@ results = model.train(
 
 ### 6.1 正确做法（推荐）
 
-```python
+```
 # 第一次训练：直接设目标 epochs，用 patience 早停
 results = model.train(data='VisDrone.yaml', epochs=200, patience=50, ...)
 
@@ -306,7 +343,7 @@ results = model.train(resume=True)  # 继续原来的 200 轮计划
 
 ### 6.2 错误做法（避免）
 
-```python
+```
 # ❌ 不要中途改 epochs！
 model.train(epochs=50)      # 先跑50轮
 model.train(resume=True, epochs=100)  # 改成100轮，学习率曲线断裂！
@@ -320,7 +357,7 @@ model.train(resume=True, epochs=100)  # 改成100轮，学习率曲线断裂！
 
 用 `train.sh` 启动训练，日志保存到带时间戳的文件：
 
-```bash
+```
 #!/bin/bash
 # 项目级配置，避免和其他项目冲突
 export YOLO_CONFIG_DIR="$(cd "$(dirname "$0")" && pwd)/.config"
@@ -337,7 +374,7 @@ echo "Training started, log: $LOG_FILE"
 
 默认 TQDM 每个 batch 都打印进度，日志量很大。可修改 `trainer.py` 设置 `mininterval`：
 
-```python
+```
 # trainer.py:408，将 TQDM 添加 mininterval 参数
 pbar = TQDM(enumerate(self.train_loader), total=nb, mininterval=10.0)
 ```
