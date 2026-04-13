@@ -69,6 +69,116 @@ def _setup_scheduler(self):
 
 > ⚠️ **注意**：如果用 cosine，中途 resume 改 epochs 会破坏学习率曲线。建议直接设目标 epochs + patience 早停。
 
+### 2.4 End-to-End 训练机制（dual label assignment）
+
+YOLO26 默认 `end2end=True`（yolo26.yaml:8），训练时同时使用 **one2many** 和 **one2one** 两个检测头，推理时只用 one2one 头实现无 NMS 推理。
+
+#### 2.4.1 模型结构
+
+```python
+# head.py:111-113
+if end2end:
+    self.one2one_cv2 = copy.deepcopy(self.cv2)   # one2one 的 box head
+    self.one2one_cv3 = copy.deepcopy(self.cv3)   # one2one 的 cls head
+```
+
+`end2end=True` 时，Detect 头会额外 `deepcopy` 一份 `cv2/cv3` 作为 one2one 头。原来的 `cv2/cv3` 保留作为 **one2many 头**，参数量几乎翻倍。
+
+#### 2.4.2 前向传播
+
+```python
+# head.py:150-154
+preds = self.forward_head(x, **self.one2many)          # one2many 头正常前向
+if self.end2end:
+    x_detach = [xi.detach() for xi in x]               # ⚠️ 关键：detach feature
+    one2one = self.forward_head(x_detach, **self.one2one)
+    preds = {"one2many": preds, "one2one": one2one}     # 同时输出两个头的预测
+```
+
+- one2one 头的输入是 **detach 后的 feature**，梯度不会回传到 backbone
+- backbone **只由 one2many 头的梯度来优化**，one2one 头只更新自身参数
+- 设计原因：one2many 要求"多个位置高响应"（NMS 范式），one2one 要求"仅一个位置高响应"（无 NMS 范式），两者对 backbone 的要求矛盾，detach 避免梯度冲突
+
+#### 2.4.3 损失计算
+
+```python
+# loss.py:1157-1189
+class E2ELoss:
+    self.one2many = loss_fn(model, tal_topk=10)                    # topk=10（一对多分配）
+    self.one2one  = loss_fn(model, tal_topk=7, tal_topk2=1)        # topk=7, topk2=1（一对一分配）
+
+    # 总 loss
+    loss = loss_one2many * o2m + loss_one2one * o2o
+```
+
+#### 2.4.4 权重衰减策略
+
+```python
+# loss.py:1164-1189
+# 初始: o2m=0.8, o2o=0.2
+# 最终: o2m=0.1, o2o=0.9
+
+def decay(self, x):
+    return max(1 - x / max(self.one2one.hyp.epochs - 1, 1), 0) * (0.8 - 0.1) + 0.1
+```
+
+o2m 权重从 0.8 **线性衰减**到 0.1，o2o 从 0.2 增长到 0.9。每个 epoch 结束时调用 `criterion.update()`（trainer.py:508-509）。
+
+| 训练阶段 | o2m | o2o | 说明 |
+|----------|-----|-----|------|
+| 早期 | 0.8 | 0.2 | one2many 主导，backbone 获得丰富监督信号 |
+| 后期 | 0.1 | 0.9 | one2one 头精细调优，学会一对一预测 |
+
+> ⚠️ **早停注意**：衰减基于**预设的 epochs 总量**，不是实际训练 epoch。例如设 epochs=120 但 50 epoch 早停，o2o 只到 0.48（远没到 0.9）。如果在意 end2end 推理质量，建议 epochs 设为实际预期训练轮数，而非偏大上限。
+
+#### 2.4.5 推理与验证
+
+```python
+# head.py:150-160 forward()
+preds = self.forward_head(x, **self.one2many)
+if self.end2end:
+    x_detach = [xi.detach() for xi in x]
+    one2one = self.forward_head(x_detach, **self.one2one)
+    preds = {"one2many": preds, "one2one": one2one}
+if self.training:
+    return preds                                          # 训练：返回两个头
+y = self._inference(preds["one2one"] if self.end2end else preds)  # 推理：只用 one2one
+if self.end2end:
+    y = self.postprocess(y.permute(0, 2, 1))              # topk，无需 NMS
+return y if self.export else (y, preds)
+```
+
+`model.eval()` 后 `self.training=False`，走推理分支，**验证时用的是 one2one 头**。这意味着：
+
+- 训练每轮验证的 mAP 基于 one2one 头计算
+- 训练早期 one2one 头还很弱，验证 mAP 可能比 one2many 头差不少
+- 随着 o2o 权重增长，one2one 头逐渐追上
+
+> ⚠️ 如果早停导致 o2o 权重不够高，one2one 头可能未训练充分，验证 mAP 偏低。
+
+#### 2.4.6 导出（fuse）
+
+```python
+# head.py:249-251 导出/fuse 时删除 one2many 头
+def fuse(self):
+    self.cv2 = self.cv3 = None  # 删除 one2many 头
+```
+
+#### 2.4.7 总结
+
+| 阶段 | one2many | one2one |
+|------|----------|---------|
+| 训练 | ✅ 使用，梯度回传到 backbone | ✅ 使用，输入 detach，只更新自身参数 |
+| 训练 loss 权重 | 0.8 → 0.1（衰减） | 0.2 → 0.9（增长） |
+| 验证 | ❌ 不使用 | ✅ 使用，topk 无需 NMS |
+| 推理/导出 | ❌ 丢弃（fuse 删除） | ✅ 使用，无需 NMS |
+
+#### 2.4.7 GFLOPs 显示说明
+
+模型初始化时 `self.info()` 不传 `imgsz`，默认用 640 计算 GFLOPs（见 `model_info()` 和 `get_flops()` 的默认参数）。因此不同 `imgsz` 训练时显示的 GFLOPs 相同，实际 GFLOPs 与 imgsz 成平方关系：
+
+- 实际 GFLOPs ≈ 显示值 × (实际 imgsz / 640)²
+
 ---
 
 ## 三、关键参数详解
@@ -317,14 +427,46 @@ results = model.train(
 
 ### 5.3 COCO 预训练参考参数
 
+> 数据来源：`docs/en/guides/yolo26-training-recipe.md`（YOLO26 官方训练 recipe 文档）
+
 | Setting | N | S | M | L | X |
 |---------|---|---|---|---|---|
 | `epochs` | 245 | 70 | 80 | 60 | 40 |
 | `lr0` | 0.0054 | 0.00038 | 0.00038 | 0.00038 | 0.00038 |
 | `lrf` | 0.0495 | 0.882 | 0.882 | 0.882 | 0.882 |
+| `momentum` | 0.947 | 0.948 | 0.948 | 0.948 | 0.948 |
+| `weight_decay` | 0.00064 | 0.00027 | 0.00027 | 0.00027 | 0.00027 |
+| `warmup_epochs` | 0.98 | 0.99 | 0.99 | 0.99 | 0.99 |
 | `batch` | 128 | 128 | 128 | 128 | 128 |
+| `imgsz` | 640 | 640 | 640 | 640 | 640 |
 
-> **注意**：COCO 预训练时大模型收敛更快（X 只需 40 epochs），但 VisDrone 只有 6k 张图，需要更多 epochs。
+> **注意**：COCO 预训练时大模型收敛更快（X 只需 40 epochs），但 VisDrone 只有 6k 张图，需要更多 epochs。N 模型用了更高的初始学习率 + 陡衰减（lrf=0.0495），S/M/L/X 用低学习率 + 温和衰减（lrf=0.882），反映了小模型需要更激进的更新。
+
+#### 5.3.1 Recipe vs Default：两套参数体系的区别
+
+| | default.yaml（微调场景） | COCO recipe（预训练场景） |
+|---|---|---|
+| **适用** | 小数据集微调 / 从零训练 | COCO 118k 大数据集预训练 |
+| `lr0` | 0.01 | 0.00038（S/M/L/X） |
+| `lrf` | 0.01 | 0.882 |
+| 最终 lr | 0.01 × 0.01 = **0.0001** | 0.00038 × 0.882 = **0.000335** |
+| lr 衰减幅度 | **衰减 100 倍**（0.01→0.0001） | **几乎不衰减**（0.00038→0.000335） |
+
+**为什么 recipe 的 lr0 这么低、lrf 接近 1？**
+
+COCO 预训练 = 118k 张图 × 128 batch × 40-245 epochs = 海量迭代。迭代次数巨大时：
+- 初始 lr 必须很低（0.00038），否则训练爆炸
+- lrf≈1 不衰减，因为 lr0 本身已经很低，不需要再大幅衰减
+
+**为什么 default.yaml 的 lr0=0.01、lrf=0.01？**
+
+微调场景数据少、迭代少，需要：
+- 较高初始 lr（0.01）让模型快速适应新数据
+- 大幅衰减（lrf=0.01）到极小值，最终精细收敛
+
+**VisDrone 微调应该用哪个？**
+
+用 default.yaml 的参数（`lr0=0.01, lrf=0.01`），即 `train.py` 当前配置。5.3 节的 recipe 是参考用的，让你了解预训练权重是怎么训出来的，**微调时不应照搬这些参数**。
 
 ---
 
@@ -372,11 +514,11 @@ echo "Training started, log: $LOG_FILE"
 
 ### 7.2 控制日志打印频率
 
-默认 TQDM 每个 batch 都打印进度，日志量很大。可修改 `trainer.py` 设置 `mininterval`：
+默认 TQDM 每个 batch 都打印进度，日志量很大。可修改 `trainer.py` 和 `validator.py` 设置 `mininterval`：
 
 ```
 # trainer.py:408，将 TQDM 添加 mininterval 参数
-pbar = TQDM(enumerate(self.train_loader), total=nb, mininterval=10.0)
+pbar = TQDM(enumerate(self.train_loader), total=nb, mininterval=60.0)
 ```
 
 | mininterval | 效果 |
@@ -400,11 +542,22 @@ pbar = TQDM(enumerate(self.train_loader), total=nb, mininterval=10.0)
 
 默认下载到 `./weights/` 目录（Git 仓库根目录下）。
 
-修改位置：
-```bash
-yolo settings weights_dir=/mnt/sda1/ultralytics/weights
-```
+---
+
+## 九、YOLO26 源码详解
+
+### 9.1 模型架构
+
+> 待补充：backbone、neck、head 结构详解，P2 小目标检测层等。
+
+### 9.2 训练流程
+
+> 待补充：trainer 训练循环、loss 计算、梯度累积等。
+
+### 9.3 验证与推理
+
+> 待补充：validator 验证流程、postprocess、NMS vs topk 等。
 
 ---
 
-*最后更新：2026-04-11*
+*最后更新：2026-04-13*

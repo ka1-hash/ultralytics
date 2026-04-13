@@ -50,7 +50,7 @@ else:
         lr0=0.01,
         cos_lr=True,
         project=DATA.lower(),
-        name=f"{MODEL}-b{args.batch}-s{args.imgsz}-ms{args.multi_scale}-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+        name=f"{MODEL}-b{args.batch}-s{args.imgsz}-ms{args.multi_scale}-e{args.epochs}-{datetime.now().strftime('%Y%m%d-%H%M')}",
         cache='disk',
         device=args.device,
     )

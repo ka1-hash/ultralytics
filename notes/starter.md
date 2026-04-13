@@ -19,13 +19,15 @@ uv pip uninstall torch torchvision
 
 # 安装支持 CUDA 12.4 的最新 PyTorch 版本（2.6.0）
 uv pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+
 # 不同安装命令的区别
-uv add pandas # 改 pyproject.toml + 改 uv.lock + 安装
+uv add pandas # 改 pyproject.toml + 改 uv.lock + 安装 （容易破坏 torch 版本）
 uv pip install pandas # 只安装到 venv（推荐）
 ```
 
 验证安装：
 ```bash
+source .venv/bin/activate
 python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.version.cuda}, Available: {torch.cuda.is_available()}')"
 ```
 

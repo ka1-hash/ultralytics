@@ -197,6 +197,7 @@ if __name__ == "__main__":
         '26m-ms0.5': os.path.join(project_root, "runs/detect/visdrone/yolo26m-20260411-221639/results.csv"),
         '26m-ms0': os.path.join(project_root, "runs/detect/visdrone/yolo26m-20260412-225419/results.csv"),
         '26m-p2-ms0': os.path.join(project_root, "runs/detect/visdrone/yolo26m-p2-20260412-234046/results.csv"),
+        '26m-p2-ms0-1024': os.path.join(project_root, "runs/detect/visdrone/yolo26m-p2-b4-s1024-ms0.0-20260413-163054/results.csv"),
     }
     
     # 对比mAP50-95
