@@ -2,6 +2,30 @@
 
 ## 快速上手
 
+### 分支管理
+
+我的分支为 `dev`，我会定期从 `main` 分支同步，并合并到 `dev` 分支。
+
+```
+git pull upstream main        # 先保证本地 main 是最新官方代码
+git checkout dev
+git merge main
+```
+
+新同学进行开发，从 `dev` 分支开始：
+
+```
+git checkout dev
+git checkout -b <your_branch>
+git push -u origin <your_branch>
+# 定期从dev分支拉取最新代码，并合并到你的分支
+git checkout dev
+git pull
+git checkout <your_branch>
+git merge dev
+```
+
+
 ### 环境管理
 
 本项目使用 `uv` 进行 Python 环境和依赖管理。
@@ -30,6 +54,8 @@ uv pip install pandas # 只安装到 venv（推荐）
 source .venv/bin/activate
 python -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.version.cuda}, Available: {torch.cuda.is_available()}')"
 ```
+
+
 
 ### 开始训练
 
