@@ -18,6 +18,7 @@ from torch.utils.data import Dataset
 from ultralytics.data.utils import FORMATS_HELP_MSG, HELP_URL, IMG_FORMATS, check_file_speeds
 from ultralytics.utils import DEFAULT_CFG, LOCAL_RANK, LOGGER, NUM_THREADS, TQDM
 from ultralytics.utils.patches import imread
+from ultralytics.utils.imgsz import imgsz_hw, imgsz_long
 
 
 class BaseDataset(Dataset):
@@ -237,13 +238,25 @@ class BaseDataset(Dataset):
                 raise FileNotFoundError(f"Image Not Found {f}")
 
             h0, w0 = im.shape[:2]  # orig hw
-            if rect_mode:  # resize long side to imgsz while maintaining aspect ratio
-                r = self.imgsz / max(h0, w0)  # ratio
-                if r != 1:  # if sizes are not equal
-                    w, h = (min(math.ceil(w0 * r), self.imgsz), min(math.ceil(h0 * r), self.imgsz))
+            # if rect_mode:  # resize long side to imgsz while maintaining aspect ratio
+            #     r = self.imgsz / max(h0, w0)  # ratio
+            #     if r != 1:  # if sizes are not equal
+            #         w, h = (min(math.ceil(w0 * r), self.imgsz), min(math.ceil(h0 * r), self.imgsz))
+            #         im = cv2.resize(im, (w, h), interpolation=cv2.INTER_LINEAR)
+            # elif not (h0 == w0 == self.imgsz):  # resize by stretching image to square imgsz
+            #     im = cv2.resize(im, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
+            target_h, target_w = imgsz_hw(self.imgsz)
+            target_long = imgsz_long(self.imgsz)
+
+            if rect_mode:  # resize long side to target_long while maintaining aspect ratio
+                r = target_long / max(h0, w0)
+                if r != 1:
+                    w = min(math.ceil(w0 * r), target_long)
+                    h = min(math.ceil(h0 * r), target_long)
                     im = cv2.resize(im, (w, h), interpolation=cv2.INTER_LINEAR)
-            elif not (h0 == w0 == self.imgsz):  # resize by stretching image to square imgsz
-                im = cv2.resize(im, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
+            elif not (h0 == target_h and w0 == target_w):
+                im = cv2.resize(im, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
             if im.ndim == 2:
                 im = im[..., None]
 
