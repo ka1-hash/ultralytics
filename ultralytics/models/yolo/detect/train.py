@@ -16,6 +16,8 @@ from ultralytics.engine.trainer import BaseTrainer
 from ultralytics.models import yolo
 from ultralytics.nn.tasks import DetectionModel
 from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
+from ultralytics.utils.imgsz import is_rect_imgsz
+
 from ultralytics.utils.patches import override_configs
 from ultralytics.utils.plotting import plot_images, plot_labels
 from ultralytics.utils.torch_utils import torch_distributed_zero_first, unwrap_model
@@ -74,7 +76,16 @@ class DetectionTrainer(BaseTrainer):
             (Dataset): YOLO dataset object configured for the specified mode.
         """
         gs = max(int(unwrap_model(self.model).stride.max()), 32)
-        return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == "val", stride=gs)
+        # return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == "val", stride=gs)
+        return build_yolo_dataset(
+        self.args,
+        img_path,
+        batch,
+        self.data,
+        mode=mode,
+        rect=(mode == "val" and not is_rect_imgsz(self.args.imgsz)),
+        stride=gs,
+    )
 
     def get_dataloader(self, dataset_path: str, batch_size: int = 16, rank: int = 0, mode: str = "train"):
         """Construct and return dataloader for the specified mode.
@@ -117,6 +128,28 @@ class DetectionTrainer(BaseTrainer):
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
         batch["img"] = batch["img"].float() / 255
+        # if self.args.multi_scale > 0.0:
+        #     imgs = batch["img"]
+        #     sz = (
+        #         random.randrange(
+        #             int(self.args.imgsz * (1.0 - self.args.multi_scale)),
+        #             int(self.args.imgsz * (1.0 + self.args.multi_scale) + self.stride),
+        #         )
+        #         // self.stride
+        #         * self.stride
+        #     )  # size
+        #     sf = sz / max(imgs.shape[2:])  # scale factor
+        #     if sf != 1:
+        #         ns = [
+        #             math.ceil(x * sf / self.stride) * self.stride for x in imgs.shape[2:]
+        #         ]  # new shape (stretched to gs-multiple)
+        #         imgs = nn.functional.interpolate(imgs, size=ns, mode="bilinear", align_corners=False)
+        #     batch["img"] = imgs
+        if is_rect_imgsz(self.args.imgsz):
+            if self.args.multi_scale > 0.0:
+                raise ValueError("Rectangular train imgsz currently requires multi_scale=0")
+            return batch
+
         if self.args.multi_scale > 0.0:
             imgs = batch["img"]
             sz = (
@@ -126,12 +159,10 @@ class DetectionTrainer(BaseTrainer):
                 )
                 // self.stride
                 * self.stride
-            )  # size
-            sf = sz / max(imgs.shape[2:])  # scale factor
+            )
+            sf = sz / max(imgs.shape[2:])
             if sf != 1:
-                ns = [
-                    math.ceil(x * sf / self.stride) * self.stride for x in imgs.shape[2:]
-                ]  # new shape (stretched to gs-multiple)
+                ns = [math.ceil(x * sf / self.stride) * self.stride for x in imgs.shape[2:]]
                 imgs = nn.functional.interpolate(imgs, size=ns, mode="bilinear", align_corners=False)
             batch["img"] = imgs
         return batch
