@@ -42,6 +42,7 @@ from ultralytics.utils import (
     colorstr,
     emojis,
 )
+from ultralytics.utils.imgsz import is_rect_imgsz, imgsz_str, imgsz_long
 from ultralytics.utils.autobatch import check_train_batch_size
 from ultralytics.utils.checks import check_amp, check_file, check_imgsz, check_model_file_from_stem, print_args
 from ultralytics.utils.dist import ddp_cleanup, generate_ddp_command
@@ -340,7 +341,12 @@ class BaseTrainer:
 
         # Check imgsz
         gs = max(int(self.model.stride.max() if hasattr(self.model, "stride") else 32), 32)  # grid size (max stride)
-        self.args.imgsz = check_imgsz(self.args.imgsz, stride=gs, floor=gs, max_dim=1)
+        self.args.imgsz = check_imgsz(
+            self.args.imgsz,
+            stride=gs,
+            floor=gs,
+            max_dim=2 if is_rect_imgsz(self.args.imgsz) else 1,
+        )
         self.stride = gs  # for multiscale training
 
         # Batch size
@@ -376,7 +382,7 @@ class BaseTrainer:
         self.train_time_start = time.time()
         self.run_callbacks("on_train_start")
         LOGGER.info(
-            f"Image sizes {self.args.imgsz} train, {self.args.imgsz} val\n"
+            f"Image sizes {imgsz_str(self.args.imgsz)} train, {imgsz_str(self.args.imgsz)} val\n"
             f"Using {self.train_loader.num_workers * (self.world_size or 1)} dataloader workers\n"
             f"Logging results to {colorstr('bold', self.save_dir)}\n"
             f"Starting training for " + (f"{self.args.time} hours..." if self.args.time else f"{self.epochs} epochs...")
@@ -572,7 +578,7 @@ class BaseTrainer:
 
     def auto_batch(self, max_num_obj=0, dataset_size=0):
         """Calculate optimal batch size based on model and device memory constraints."""
-        max_imgsz = int(self.args.imgsz * (1 + self.args.multi_scale))  # need not be stride-aligned
+        max_imgsz = int(imgsz_long(self.args.imgsz) * (1 + self.args.multi_scale))  # need not be stride-aligned
         return check_train_batch_size(
             model=self.model,
             imgsz=max_imgsz,
