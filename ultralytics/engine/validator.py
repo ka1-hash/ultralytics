@@ -42,7 +42,7 @@ from ultralytics.utils import LOGGER, RANK, TQDM, callbacks, colorstr, emojis
 from ultralytics.utils.checks import check_imgsz
 from ultralytics.utils.ops import Profile
 from ultralytics.utils.torch_utils import attempt_compile, select_device, smart_inference_mode, unwrap_model
-
+from ultralytics.utils.imgsz import is_rect_imgsz, imgsz_str
 
 class BaseValidator:
     """A base class for creating validators.
@@ -126,7 +126,11 @@ class BaseValidator:
         (self.save_dir / "labels" if self.args.save_txt else self.save_dir).mkdir(parents=True, exist_ok=True)
         if self.args.conf is None:
             self.args.conf = 0.01 if self.args.task == "obb" else 0.001  # reduce OBB val memory usage
-        self.args.imgsz = check_imgsz(self.args.imgsz, max_dim=1)
+        # self.args.imgsz = check_imgsz(self.args.imgsz, max_dim=1)
+        self.args.imgsz = check_imgsz(
+            self.args.imgsz,
+            max_dim=2 if is_rect_imgsz(self.args.imgsz) else 1,
+        )
 
         self.plots = {}
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
@@ -176,10 +180,19 @@ class BaseValidator:
             self.args.half = model.fp16  # update half
             stride, fmt = model.stride, model.format
             pt = fmt == "pt"
-            imgsz = check_imgsz(self.args.imgsz, stride=stride)
+            # imgsz = check_imgsz(self.args.imgsz, stride=stride)
+            imgsz = check_imgsz(
+                self.args.imgsz,
+                stride=stride,
+                max_dim=2 if is_rect_imgsz(self.args.imgsz) else 1,
+            )
             if fmt not in {"pt", "torchscript"} and not getattr(model, "dynamic", False):
                 self.args.batch = model.metadata.get("batch", 1)  # export.py models default to batch-size 1
-                LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz}, {imgsz})")
+                # LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz}, {imgsz})")
+                if isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
+                    LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz[0]}, {imgsz[1]})")
+                else:
+                    LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz}, {imgsz})")
 
             if str(self.args.data).rsplit(".", 1)[-1] in {"yaml", "yml"}:
                 self.data = check_det_dataset(self.args.data)
@@ -198,8 +211,14 @@ class BaseValidator:
             model.eval()
             if self.args.compile:
                 model = attempt_compile(model, device=self.device)
-            model.warmup(imgsz=(1 if pt else self.args.batch, self.data["channels"], imgsz, imgsz))  # warmup
+            # model.warmup(imgsz=(1 if pt else self.args.batch, self.data["channels"], imgsz, imgsz))  # warmup
+            if isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
+                warmup_shape = (1 if pt else self.args.batch, self.data["channels"], int(imgsz[0]), int(imgsz[1]))
+            else:
+                warmup_shape = (1 if pt else self.args.batch, self.data["channels"], int(imgsz), int(imgsz))
 
+            model.warmup(imgsz=warmup_shape)
+            
         self.run_callbacks("on_val_start")
         dt = (
             Profile(device=self.device),
