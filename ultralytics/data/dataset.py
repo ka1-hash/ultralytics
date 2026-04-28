@@ -29,6 +29,8 @@ from .augment import (
     classify_transforms,
     v8_transforms,
 )
+from ultralytics.utils.imgsz import  imgsz_hw
+from copy import deepcopy
 from .base import BaseDataset
 from .converter import merge_multi_segment
 from .utils import (
@@ -203,22 +205,93 @@ class YOLODataset(BaseDataset):
             LOGGER.warning(f"Labels are missing or empty in {cache_path}, training may not work correctly. {HELP_URL}")
         return labels
 
+    # def build_transforms(self, hyp: dict | None = None) -> Compose:
+    #     """Build and append transforms to the list.
+
+    #     Args:
+    #         hyp (dict, optional): Hyperparameters for transforms.
+
+    #     Returns:
+    #         (Compose): Composed transforms.
+    #     """
+    #     # if self.augment:
+    #     #     hyp.mosaic = hyp.mosaic if self.augment and not self.rect else 0.0
+    #     #     hyp.mixup = hyp.mixup if self.augment and not self.rect else 0.0
+    #     #     hyp.cutmix = hyp.cutmix if self.augment and not self.rect else 0.0
+    #     #     transforms = v8_transforms(self, self.imgsz, hyp)
+    #     # else:
+    #     #     transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)])
+    #     # if self.augment:
+    #     #     hyp = deepcopy(hyp)
+    #     #     if is_rect_imgsz(self.imgsz):
+    #     #         hyp.mosaic = 0.0
+    #     #         hyp.mixup = 0.0
+    #     #         hyp.cutmix = 0.0
+    #     #         hyp.copy_paste = 0.0
+    #     #     else:
+    #     #         hyp.mosaic = hyp.mosaic if self.augment and not self.rect else 0.0
+    #     #         hyp.mixup = hyp.mixup if self.augment and not self.rect else 0.0
+    #     #         hyp.cutmix = hyp.cutmix if self.augment and not self.rect else 0.0
+    #     #     transforms = v8_transforms(self, self.imgsz, hyp)
+    #     if self.augment:
+    #         hyp = deepcopy(hyp)
+
+    #         # 不再因为矩形输入就强制关闭增强
+    #         hyp.mosaic = hyp.mosaic if self.augment and not self.rect else 0.0
+    #         hyp.mixup = hyp.mixup if self.augment and not self.rect else 0.0
+    #         hyp.cutmix = hyp.cutmix if self.augment and not self.rect else 0.0
+    #         hyp.copy_paste = hyp.copy_paste if self.augment and not self.rect else 0.0
+
+    #         # 训练开始前打印一次增强策略
+    #         if not hasattr(self, "_aug_policy_printed"):
+    #             print(
+    #                 f"[AUG_POLICY] imgsz={self.imgsz}, "
+    #                 f"mosaic={hyp.mosaic}, mixup={hyp.mixup}, cutmix={hyp.cutmix}, "
+    #                 f"copy_paste={hyp.copy_paste}, close_mosaic={getattr(hyp, 'close_mosaic', 'N/A')}"
+    #             )
+    #             self._aug_policy_printed = True
+
+    #         transforms = v8_transforms(self, self.imgsz, hyp)
+    #     else:
+    #         transforms = Compose([LetterBox(new_shape=imgsz_hw(self.imgsz), scaleup=False)])
+    #     # else:
+    #     #     transforms = Compose([LetterBox(new_shape=imgsz_hw(self.imgsz), scaleup=False)])
+    #     transforms.append(
+    #         Format(
+    #             bbox_format="xywh",
+    #             normalize=True,
+    #             return_mask=self.use_segments,
+    #             return_keypoint=self.use_keypoints,
+    #             return_obb=self.use_obb,
+    #             batch_idx=True,
+    #             mask_ratio=hyp.mask_ratio,
+    #             mask_overlap=hyp.overlap_mask,
+    #             bgr=hyp.bgr if self.augment else 0.0,  # only affect training.
+    #         )
+    #     )
+    #     return transforms
+
     def build_transforms(self, hyp: dict | None = None) -> Compose:
-        """Build and append transforms to the list.
-
-        Args:
-            hyp (dict, optional): Hyperparameters for transforms.
-
-        Returns:
-            (Compose): Composed transforms.
-        """
         if self.augment:
+            hyp = deepcopy(hyp)
+
             hyp.mosaic = hyp.mosaic if self.augment and not self.rect else 0.0
             hyp.mixup = hyp.mixup if self.augment and not self.rect else 0.0
             hyp.cutmix = hyp.cutmix if self.augment and not self.rect else 0.0
+            hyp.copy_paste = hyp.copy_paste if self.augment and not self.rect else 0.0
+
+            if not hasattr(self, "_aug_policy_printed"):
+                print(
+                    f"[AUG_POLICY] imgsz={self.imgsz}, "
+                    f"mosaic={hyp.mosaic}, mixup={hyp.mixup}, cutmix={hyp.cutmix}, "
+                    f"copy_paste={hyp.copy_paste}, close_mosaic={getattr(hyp, 'close_mosaic', 'N/A')}"
+                )
+                self._aug_policy_printed = True
+
             transforms = v8_transforms(self, self.imgsz, hyp)
         else:
-            transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)])
+            transforms = Compose([LetterBox(new_shape=imgsz_hw(self.imgsz), scaleup=False)])
+
         transforms.append(
             Format(
                 bbox_format="xywh",
@@ -229,7 +302,7 @@ class YOLODataset(BaseDataset):
                 batch_idx=True,
                 mask_ratio=hyp.mask_ratio,
                 mask_overlap=hyp.overlap_mask,
-                bgr=hyp.bgr if self.augment else 0.0,  # only affect training.
+                bgr=hyp.bgr if self.augment else 0.0,
             )
         )
         return transforms
