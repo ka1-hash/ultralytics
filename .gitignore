@@ -208,3 +208,5 @@ results.csv
 .config/
 train.py
 train.sh
+
+ReCon_A100_Standalone/
