@@ -1,0 +1,127 @@
+project_root: /home/shukang/datasets/VisDrone_ReCon_Workspace
+raw_dataset_root: /home/shukang/datasets/VisDrone
+recon_pass_root: /home/shukang/datasets/VisDrone_ReCon_Pass
+split_root: /home/shukang/datasets/split_files
+
+images_train_subdir: images/train
+labels_train_subdir: labels/train
+images_val_subdir: images/val
+labels_val_subdir: labels/val
+
+class_names:
+  6: tricycle
+  7: awning-tricycle
+  8: bus
+
+s2_short_train_ranges:
+  6: [16, 56]
+  7: [20, 56]
+  8: [24, 160]
+
+s4_rules:
+  6:
+    mask_bbox_iou_min: 0.60
+    mask_area_ratio_min: 0.25
+    mask_area_ratio_max: 0.90
+    largest_cc_ratio_min: 0.70
+    cc_count_max: 2
+  7:
+    mask_bbox_iou_min: 0.65
+    mask_area_ratio_min: 0.30
+    mask_area_ratio_max: 0.85
+    largest_cc_ratio_min: 0.75
+    cc_count_max: 2
+  8:
+    mask_bbox_iou_min: 0.60
+    mask_area_ratio_min: 0.35
+    mask_area_ratio_max: 0.95
+    largest_cc_ratio_min: 0.75
+    cc_count_max: 3
+
+qsrc_thresholds:
+  6: 0.65
+  7: 0.75
+  8: 0.60
+
+position_rules:
+  same_y_ratio:
+    6: 0.15
+    7: 0.10
+    8: 0.20
+  s_pos_threshold:
+    6: 0.68
+    7: 0.78
+    8: 0.62
+  edge_margin_ratio: 0.03
+  safe_distance_ratio: 0.15
+  top_k_positions:
+    6: 3
+    7: 1
+    8: 3
+
+recon_rules:
+  patch_sizes:
+    6: 512
+    7: 512
+    8: 768
+  versions_per_candidate:
+    mini: 4
+    full: 6
+  modes:
+    6: boundary_repair
+    7: boundary_repair
+    8: object_boundary_refine
+
+c_rules:
+  stage_mini:
+    max_added_per_image:
+      6: 1
+      7: 1
+      8: 1
+    max_use_per_source:
+      6: 2
+      7: 2
+      8: 2
+    add_ratio:
+      6: [0.08, 0.12]
+      7: [0.06, 0.10]
+      8: [0.05, 0.08]
+  stage_full:
+    max_added_per_image:
+      6: 2
+      7: 1
+      8: 2
+    max_use_per_source:
+      6: 3
+      7: 2
+      8: 4
+    add_ratio:
+      6: [0.15, 0.20]
+      7: [0.15, 0.25]
+      8: [0.08, 0.12]
+
+qc_thresholds:
+  q_final:
+    6: 0.74
+    7: 0.82
+    8: 0.70
+  gdino_iou:
+    6: 0.45
+    7: 0.40
+    8: 0.50
+  gdino_score:
+    6: 0.20
+    7: 0.18
+    8: 0.25
+  sam_update_iou_min: 0.70
+  sam_update_area_ratio: [0.75, 1.35]
+  yolo_conf_min: 0.25
+
+artifacts:
+  source_instances_csv: metadata/source_instances.csv
+  source_instances_raw_csv: metadata/source_instances_raw.csv
+  candidate_positions_csv: metadata/candidate_positions.csv
+  recon_tasks_jsonl: metadata/recon_tasks.jsonl
+  recon_qc_all_csv: metadata/recon_qc_all.csv
+  recon_qc_pass_csv: metadata/recon_qc_pass.csv
+  final_class_counts_csv: metadata/final_class_counts.csv
